@@ -4,7 +4,8 @@
  *
  * There is no SMB5 charger driver here, so the USBIN input current limit stays
  * at the 500 mA left by the bootloader and the tablet discharges while plugged
- * in. Program the limit from the Type-C Rp advertisement or the BC1.2 result,
+ * in. Program the limit from the USB PD contract (TCPM), the Type-C Rp
+ * advertisement or the BC1.2 result,
  * and expose a USB power supply so userspace knows a charger is connected.
  *
  * Register layout: downstream smb5-reg.h / qpnp-smb5.c (ICL step 50 mA).
@@ -24,6 +25,7 @@
 #define APSD_RESULT_STATUS_REG		0x1308
 #define  DCP_CHARGER_BIT		BIT(3)
 #define  CDP_CHARGER_BIT		BIT(2)
+#define  OCP_CHARGER_BIT		BIT(1)
 #define USBIN_INT_RT_STS_REG		0x1310
 #define  USBIN_PLUGIN_RT_STS_BIT	BIT(4)
 #define USBIN_CURRENT_LIMIT_CFG_REG	0x1370
@@ -34,6 +36,7 @@
 #define  SNK_RP_3P0_BIT			BIT(1)
 
 #define FIND_RETRIES			60
+#define TCPM_PSY_NAME			"tcpm-source-psy-c440000.spmi:pmic@2:typec@1500"
 
 static struct {
 	struct regmap *map;
@@ -80,19 +83,39 @@ static const struct power_supply_desc nabu_usb_desc = {
 	.get_property	= nabu_usb_get_property,
 };
 
+/* Current granted by a USB PD contract negotiated by TCPM, in mA. */
+static unsigned int nabu_usb_pd_ma(void)
+{
+	union power_supply_propval val;
+	struct power_supply *psy;
+	unsigned int ma = 0;
+
+	psy = power_supply_get_by_name(TCPM_PSY_NAME);
+	if (!psy)
+		return 0;
+	if (!power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE, &val) &&
+	    val.intval &&
+	    !power_supply_get_property(psy, POWER_SUPPLY_PROP_CURRENT_MAX, &val) &&
+	    val.intval > 0)
+		ma = val.intval / 1000;
+	power_supply_put(psy);
+
+	return ma;
+}
+
 /* Limit to program, in register units; the bootloader value when unsure. */
 static unsigned int nabu_usb_wanted_cfg(void)
 {
-	unsigned int snk, apsd, ma = 0;
+	unsigned int snk, apsd, ma = nabu_usb_pd_ma();
 
-	if (!regmap_read(nu.map, TYPE_C_SNK_STATUS_REG, &snk)) {
+	if (!ma && !regmap_read(nu.map, TYPE_C_SNK_STATUS_REG, &snk)) {
 		if (snk & SNK_RP_3P0_BIT)
 			ma = 3000;
 		else if (snk & SNK_RP_1P5_BIT)
 			ma = 1500;
 	}
 	if (!ma && !regmap_read(nu.map, APSD_RESULT_STATUS_REG, &apsd) &&
-	    (apsd & (DCP_CHARGER_BIT | CDP_CHARGER_BIT)))
+	    (apsd & (DCP_CHARGER_BIT | CDP_CHARGER_BIT | OCP_CHARGER_BIT)))
 		ma = 1500;
 	if (!ma)
 		return nu.orig_cfg;
