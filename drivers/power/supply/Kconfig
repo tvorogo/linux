@@ -1074,6 +1074,16 @@ config FUEL_GAUGE_MM8013
 	  the state of charge, temperature, cycle count, actual and design
 	  capacity, etc.
 
+config NABU_USB_ICL
+	bool "Xiaomi Pad 5 PM8150B USB input current limit"
+	depends on (ARCH_QCOM || COMPILE_TEST) && OF && REGMAP
+	help
+	  Program the PM8150B USBIN input current limit on the Xiaomi Pad 5
+	  from the Type-C Rp advertisement or the BC1.2 detection result, and
+	  register a USB power supply that reports whether a charger is
+	  connected. Without an SMB5 charger driver the limit otherwise stays
+	  at 500 mA and the tablet discharges while plugged in.
+
 config BATTERY_QCOM_FG
 	tristate "Qualcomm PMIC fuel gauge driver"
 	depends on MFD_SPMI_PMIC

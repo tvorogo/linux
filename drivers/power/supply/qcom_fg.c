@@ -922,6 +922,9 @@ static int qcom_fg_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		ret = chip->ops->get_current(chip, &val->intval);
+		/* The gauge reports discharge as positive, the ABI wants it negative */
+		if (!ret)
+			val->intval = -val->intval;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		ret = chip->ops->get_voltage(chip, &val->intval);
